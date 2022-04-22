@@ -1845,7 +1845,7 @@ describe('Files', () => {
 				.get(fileDownloadPath)
 				.reply(200, function() { return fs.createReadStream(testFilePath, 'utf8'); })
 			)
-			.stdout()
+			// .stdout()
 			.stderr()
 			.command([
 				'files:download',
@@ -1859,6 +1859,8 @@ describe('Files', () => {
 				let downloadedFilePath = path.join(fileDownloadPath, fileName);
 				let downloadContent = fs.readFileSync(downloadedFilePath);
 				let expectedContent = fs.readFileSync(testFilePath);
+				console.log(`'${downloadContent.toString()}'`)
+				console.log(`'${expectedContent.toString()}'`)
 				fs.unlinkSync(downloadedFilePath);
 				/* eslint-enable no-sync */
 				assert.ok(downloadContent.equals(expectedContent));
