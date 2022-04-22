@@ -1843,9 +1843,9 @@ describe('Files', () => {
 			)
 			.nock(TEST_DOWNLOAD_ROOT, api => api
 				.get(fileDownloadPath)
-				.reply(200, function() { return fs.createReadStream(testFilePath, 'utf8'); })
+				.reply(200, function() { return 'Some content' })
 			)
-			// .stdout()
+			.stdout()
 			.stderr()
 			.command([
 				'files:download',
@@ -1859,11 +1859,9 @@ describe('Files', () => {
 				let downloadedFilePath = path.join(fileDownloadPath, fileName);
 				let downloadContent = fs.readFileSync(downloadedFilePath);
 				let expectedContent = fs.readFileSync(testFilePath);
-				console.log(`'${downloadContent.toString()}'`)
-				console.log(`'${expectedContent.toString()}'`)
 				fs.unlinkSync(downloadedFilePath);
 				/* eslint-enable no-sync */
-				assert.ok(downloadContent.equals(expectedContent));
+				assert.equal(downloadContent.toString(), 'Some content');
 				assert.equal(ctx.stderr, `Downloaded file test_file_download.txt${os.EOL}`);
 			});
 
