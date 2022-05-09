@@ -52,8 +52,7 @@ class FoldersDownloadCommand extends BoxCommand {
         } else if (item.type === 'file') {
           spinner.text = `Downloading file ${item.id} to ${item.path}`;
 
-          const fileExists = await fs.access(path.join(destinationPath, item.path), fs.access.F_OK).then(() => true).catch(() => true);
-
+          const fileExists = await new Promise(resolve => fs.access(path.join(destinationPath, item.path), fs.access.F_OK, err => resolve(err ? false : true)));
           if (fileExists) {
             continue;
           }
@@ -69,7 +68,7 @@ class FoldersDownloadCommand extends BoxCommand {
             stream.pipe(output);
             /* eslint-disable promise/avoid-new */
             // We need to await the end of the stream to avoid a race condition here
-            return new Promise((resolve, reject) => {
+            await new Promise((resolve, reject) => {
               stream.on('end', resolve);
               stream.on('error', reject);
             });
