@@ -9,34 +9,6 @@ const ora = require('ora');
 const archiver = require('archiver');
 const dateTime = require('date-fns');
 
-/**
- * Saves a file to disk
- *
- * @param {string} folderPath The folder path this item occurs at within the folder being downloaded
- * @param {Object} file The file record
- * @param {Readable} stream The stream of file contents
- * @returns {Promise<void>} A promise resolving when the file is completely written to disk
- * @throws BoxCLIError
- * @private
- */
-function saveFileToDisk(folderPath, file, stream) {
-
-	try {
-		let output = fs.createWriteStream(path.join(folderPath, file.path));
-		stream.pipe(output);
-	} catch (ex) {
-		throw new BoxCLIError(`Error downloading file ${file.id} to ${file.path}`, ex);
-	}
-
-	/* eslint-disable promise/avoid-new */
-	// We need to await the end of the stream to avoid a race condition here
-	return new Promise((resolve, reject) => {
-		stream.on('end', resolve);
-		stream.on('error', reject);
-	});
-	/* eslint-enable promise/avoid-new */
-}
-
 class FoldersDownloadCommand extends BoxCommand {
 	async run() {
 		const { flags, args } = this.parse(FoldersDownloadCommand);
@@ -62,43 +34,66 @@ class FoldersDownloadCommand extends BoxCommand {
 			outputFinalized = this._setupZip(outputPath);
 		}
 
-		try {
-			for await (let item of this._getItems(id, '')) {
-				if (item.type === 'folder' && !this.zip) {
+    try {
+      for await (let item of this._getItems(id, '')) {
+        if (item.type === 'folder' && !this.zip) {
 
-					// Set output path to the top-level folder, which is the first item in the generator
-					outputPath = outputPath || path.resolve(destinationPath, item.path);
+          // Set output path to the top-level folder, which is the first item in the generator
+          outputPath = outputPath || path.resolve(destinationPath, item.path);
 
-					spinner.text = `Creating folder ${item.id} at ${item.path}`;
-					try {
-						await fs.mkdir(path.join(destinationPath, item.path));
-					} catch (ex) {
-						throw new BoxCLIError(`Folder ${item.path} could not be created`, ex);
-					}
-				} else if (item.type === 'file') {
+          spinner.text = `Creating folder ${item.id} at ${item.path}`;
+          try {
+            await fs.mkdir(path.join(destinationPath, item.path));
+          } catch (ex) {
+            if (ex.code !== 'EEXIST') {
+              throw new BoxCLIError(`Folder ${item.path} could not be created`, ex);
+            }
+          }
+        } else if (item.type === 'file') {
+          spinner.text = `Downloading file ${item.id} to ${item.path}`;
 
-					spinner.text = `Downloading file ${item.id} to ${item.path}`;
-					let stream = await this.client.files.getReadStream(item.id);
+          if (this.zip) {
+            let stream = await this.client.files.getReadStream(item.id);
+            this.zip.append(stream, { name: item.path });
+          } else {
+            // @TODO(2018-08-15): Improve performance by queueing async work and performing in parallel
+            let output;
+            try {
+              output = fs.createWriteStream(path.join(destinationPath, item.path), { flags: 'wx'});
+              await new Promise((resolve, reject) => {
+                output.on('error', reject);
+                output.on('open', resolve);
+              })
+            } catch (ex) {
+              if (ex.code === 'EEXIST') {
+                continue;
+              }
+              throw ex;
+            }
+            let stream = await this.client.files.getReadStream(item.id);
+            stream.pipe(output);
+            /* eslint-disable promise/avoid-new */
+            // We need to await the end of the stream to avoid a race condition here
+            await new Promise((resolve, reject) => {
+              stream.on('end', resolve);
+              stream.on('error', reject);
+            });
+            /* eslint-enable promise/avoid-new */
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      spinner.stop();
+      throw err;
+    }
 
-					if (this.zip) {
-						this.zip.append(stream, { name: item.path });
-					} else {
-						// @TODO(2018-08-15): Improve performance by queueing async work and performing in parallel
-						await saveFileToDisk(destinationPath, item, stream);
-					}
-				}
-			}
-		} catch (err) {
-			spinner.stop();
-			throw err;
-		}
-
-		if (this.zip) {
-			this.zip.finalize();
-		}
-		await outputFinalized;
-		spinner.succeed(`Downloaded folder ${id} to ${outputPath}`);
-	}
+    if (this.zip) {
+      this.zip.finalize();
+    }
+    await outputFinalized;
+    spinner.succeed(`Downloaded folder ${id} to ${outputPath}`);
+  }
 
 	/**
 	 * Generator for items in the given folder.  Yields items starting with the top-level folder itself.
