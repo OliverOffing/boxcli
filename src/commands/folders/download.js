@@ -52,18 +52,24 @@ class FoldersDownloadCommand extends BoxCommand {
         } else if (item.type === 'file') {
           spinner.text = `Downloading file ${item.id} to ${item.path}`;
 
-          const fileExists = await new Promise(resolve => fs.access(path.join(destinationPath, item.path), fs.access.F_OK, err => resolve(err ? false : true)));
-          if (fileExists) {
-            continue;
-          }
-
-          let stream = await this.client.files.getReadStream(item.id);
-
           if (this.zip) {
+            let stream = await this.client.files.getReadStream(item.id);
             this.zip.append(stream, { name: item.path });
           } else {
             // @TODO(2018-08-15): Improve performance by queueing async work and performing in parallel
-            let output = fs.createWriteStream(path.join(destinationPath, item.path), { flags: 'wx'});
+            let output;
+            try {
+              output = fs.createWriteStream(path.join(destinationPath, item.path), { flags: 'wx'});
+              await new Promise((resolve, reject) => {
+                output.on('error', reject);
+                output.on('open', resolve);
+              })
+            } catch (ex) {
+              if (ex.code === 'EEXIST') {
+                continue;
+              }
+              throw ex;
+            }
             let stream = await this.client.files.getReadStream(item.id);
             stream.pipe(output);
             /* eslint-disable promise/avoid-new */
